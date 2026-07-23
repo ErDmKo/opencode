@@ -4,6 +4,7 @@ const emptyList = new Set(["/skill", "/command", "/lsp", "/formatter", "/vcs/sta
 const emptyObject = new Set(["/global/config", "/config", "/provider/auth", "/mcp", "/experimental/resource"])
 
 export interface MockServerConfig {
+  protocol?: "v1" | "v2"
   provider: unknown
   directory: string
   project: unknown
@@ -64,7 +65,10 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         config.eventRetry,
       )
     }
-    if (path === "/global/health") return json(route, { healthy: true })
+    if (path === "/global/health")
+      return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
+    if (path === "/api/health" && config.protocol === "v2")
+      return json(route, { healthy: true, version: "2.0.0", pid: 1 })
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
     if (path === "/permission")
       return json(route, typeof config.permissions === "function" ? config.permissions() : (config.permissions ?? []))
@@ -162,7 +166,12 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         .filter((session) => parentID !== "null" || session.parentID === undefined)
         .filter((session) => {
           const search = url.searchParams.get("search")?.toLowerCase()
-          return !search || String(session.title ?? "").toLowerCase().includes(search)
+          return (
+            !search ||
+            String(session.title ?? "")
+              .toLowerCase()
+              .includes(search)
+          )
         })
       const ordered = url.searchParams.get("order") === "asc" ? sessions.toReversed() : sessions
       const data = ordered.slice(offset, offset + limit)
@@ -176,7 +185,9 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       const statuses = (config.sessionStatus ?? {}) as Record<string, { type?: string }>
       return json(route, {
         data: Object.fromEntries(
-          Object.entries(statuses).flatMap(([id, status]) => (status.type === "idle" ? [] : [[id, { type: "running" }]])),
+          Object.entries(statuses).flatMap(([id, status]) =>
+            status.type === "idle" ? [] : [[id, { type: "running" }]],
+          ),
         ),
       })
     }
@@ -289,7 +300,8 @@ function currentPermission(value: unknown) {
     resources: permission.patterns ?? [],
     save: permission.always,
     metadata: permission.metadata,
-    source: tool?.messageID && tool.callID ? { type: "tool", messageID: tool.messageID, callID: tool.callID } : undefined,
+    source:
+      tool?.messageID && tool.callID ? { type: "tool", messageID: tool.messageID, callID: tool.callID } : undefined,
   }
 }
 
